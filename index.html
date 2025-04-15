@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breakout Game</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #2c2727;
+        }
+        #game-container {
+            position: relative;
+        }
+        #gameCanvas {
+            border: 1px solid black;
+            background-color: #05941d;
+        }
+        .menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(173, 170, 190, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        button {
+            margin: 5px;
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #927272;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #2b2222;
+            padding: 8px;
+        }
+        th {
+            background-color: #927272;
+        }
+    </style>
+</head>
+<body>
+    <audio id="backgroundMusic" loop>
+        <source src="background_music.mp3" type="audio/mpeg">
+    </audio>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="startMenu" class="menu">
+            <h1>Breakout</h1>
+            <button id="startButton">Start Game</button>
+            <button id="settingsButton">Settings</button>
+            <button id="highscoresButton">High Scores</button>
+            <button id="helpButton">Help</button>
+        </div>
+        <div id="pauseMenu" class="menu">
+            <h1>Paused</h1>
+            <button id="resumeButton">Resume</button>
+            <button id="restartButton">Restart</button>
+            <button id="mainMenuButton">Main Menu</button>
+        </div>
+        <div id="settingsMenu" class="menu">
+            <h1>Settings</h1>
+            <label for="difficulty">Difficulty:</label>
+            <select id="difficulty">
+                <option value="easy">Easy</option>
+                <option value="medium" selected>Medium</option>
+                <option value="hard">Hard</option>
+            </select><br>
+            <label for="soundEnabled">Sound:</label>
+            <input type="checkbox" id="soundEnabled" checked><br>
+            <button id="saveSettingsButton">Save</button>
+            <button id="backButton">Back</button>
+        </div>
+        <div id="highscoresMenu" class="menu">
+            <h1>High Scores</h1>
+            <table id="highscoresTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Score</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <button id="backToMenuButton">Back</button>
+        </div>
+        <div id="helpMenu" class="menu">
+            <h1>Help</h1>
+            <p>Use the left and right arrow keys to move the paddle.</p>
+            <p>Hit the ball with the paddle to bounce it towards the bricks.</p>
+            <p>Break all the bricks to win. You have 2 lives.</p>
+            <p>Created by Barnabás Sándor, Neptun code: EGGQM1</p>
+            <button id="closeHelpButton">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let paddle = { x: 350, y: 550, width: 100, height: 10 };
+        let ball = { x: 400, y: 300, radius: 10, dx: 5, dy: -5 };
+        let bricks = [];
+        let ppb = 5;
+        let score = 0;
+        let lives = 2;
+        let gameState = 'start';
+        let keys = { left: false, right: false };
+        let difficulty = localStorage.getItem('difficulty') || 'medium';
+        let soundEnabled = localStorage.getItem('soundEnabled') === 'true' || true;
+
+        const hitSound = new Audio('hit_sound.mp3');
+        const brickSound = new Audio('brick_sound.mp3');
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        
+        backgroundMusic.volume = 0.5;
+
+        function updateBackgroundMusic() {
+            if (gameState === 'playing' && soundEnabled) {
+                backgroundMusic.play();
+            } else {
+                backgroundMusic.pause();
+            }
+        }
+
+        function initBricks() {
+            bricks = [];
+            for (let row = 0; row < 5; row++) {
+                for (let col = 0; col < 10; col++) {
+                    bricks.push({
+                        x: col * 80 + 10,
+                        y: row * 30 + 50,
+                        width: 70,
+                        height: 20,
+                        isHit: false
+                    });
+                }
+            }
+        }
+
+        function setDifficulty() {
+            if (difficulty === 'easy') {
+                ball.dx = 3; ball.dy = -3; paddle.width = 120;
+                ppb = 2;
+            } else if (difficulty === 'medium') {
+                ball.dx = 4; ball.dy = -4; paddle.width = 120;
+                ppb = 5;
+            } else {
+                ball.dx = 5; ball.dy = -5; paddle.width = 90;
+                ppb = 15;
+            }
+            $('#difficulty').val(difficulty);
+            $('#soundEnabled').prop('checked', soundEnabled);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Draw paddle
+            ctx.fillStyle = 'lightblue';
+            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            ctx.closePath();
+            // Draw bricks
+            ctx.fillStyle = 'orange';
+            bricks.forEach(brick => {
+                if (!brick.isHit) {
+                    ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+                }
+            });
+            // Draw score and lives
+            ctx.fillStyle = 'black';
+            ctx.font = '16px Arial';
+            ctx.fillText(`Score: ${score}`, 10, 20);
+            ctx.fillText(`Lives: ${lives}`, canvas.width - 80, 20);
+        }
+
+        function update() {
+            if (gameState !== 'playing') return;
+            // Move paddle
+            if (keys.left && paddle.x > 0) paddle.x -= 5;
+            if (keys.right && paddle.x + paddle.width < canvas.width) paddle.x += 5;
+            // Move ball
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+            // Wall collisions
+            if (ball.x + ball.radius > canvas.width || ball.x - ball.radius < 0) {
+                ball.dx = -ball.dx;
+                if (soundEnabled) hitSound.play();
+            }
+            if (ball.y - ball.radius < 0) {
+                ball.dy = -ball.dy;
+                if (soundEnabled) hitSound.play();
+            }
+            if (ball.y + ball.radius > canvas.height) {
+                lives--;
+                if (lives <= 0) {
+                    endGame();
+                } else {
+                    resetBall();
+                }
+            }
+            // Paddle collision
+            if (ball.y + ball.radius > paddle.y && ball.x > paddle.x && ball.x < paddle.x + paddle.width) {
+                ball.dy = -ball.dy;
+                if (soundEnabled) hitSound.play();
+            }
+            // Brick collisions
+            bricks.forEach(brick => {
+                if (!brick.isHit && ball.x > brick.x && ball.x < brick.x + brick.width &&
+                    ball.y - ball.radius < brick.y + brick.height && ball.y + ball.radius > brick.y) {
+                    brick.isHit = true;
+                    ball.dy = -ball.dy;
+                    score += ppb;
+                    if (soundEnabled) brickSound.play();
+                    if (bricks.every(b => b.isHit)) endGame(true);
+                }
+            });
+            draw();
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = Math.abs(ball.dx) * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = -Math.abs(ball.dy);
+        }
+
+        function endGame(won = false) {
+            gameState = 'gameover';
+            if (won) alert('You won! Score: ' + score);
+            else alert('Game Over! Score: ' + score);
+            let name = prompt('Enter your name for the high score:');
+            if (name) {
+                $.post('save_score.php', { player_name: name, score: score }, () => {
+                    showMenu('#startMenu');
+                });
+            } else {
+                showMenu('#startMenu');
+            }
+        }
+
+        function showMenu(menuId) {
+            $('.menu').hide();
+            $(menuId).show();
+        }
+
+        $(document).ready(() => {
+            setDifficulty();
+            initBricks();
+            draw();
+            showMenu('#startMenu');
+
+            $('#startButton').click(() => {
+                gameState = 'playing';
+                initBricks();
+                score = 0;
+                lives = 2;
+                resetBall();
+                setDifficulty();
+                $('.menu').hide();
+                updateBackgroundMusic();
+            });
+
+            $('#resumeButton').click(() => {
+                gameState = 'playing';
+                $('.menu').hide();
+            });
+
+            $('#restartButton, #startButton').click(() => {
+                gameState = 'playing';
+                initBricks();
+                score = 0;
+                lives = 2;
+                resetBall();
+                $('.menu').hide();
+                updateBackgroundMusic();
+            });
+
+            $('#mainMenuButton, #backButton, #backToMenuButton, #closeHelpButton').click(() => {
+                showMenu('#startMenu');
+            });
+
+            $('#settingsButton').click(() => showMenu('#settingsMenu'));
+
+            $('#saveSettingsButton').click(() => {
+                difficulty = $('#difficulty').val();
+                soundEnabled = $('#soundEnabled').is(':checked');
+                localStorage.setItem('difficulty', difficulty);
+                localStorage.setItem('soundEnabled', soundEnabled);
+                setDifficulty();
+                showMenu('#startMenu');
+            });
+
+            $('#highscoresButton').click(() => {
+                $.getJSON('get_highscores.php', data => {
+                    let tbody = $('#highscoresTable tbody');
+                    tbody.empty();
+                    data.forEach(row => {
+                        tbody.append(`<tr><td>${row.player_name}</td><td>${row.score}</td><td>${row.date}</td></tr>`);
+                    });
+                    showMenu('#highscoresMenu');
+                });
+            });
+
+            $('#helpButton').click(() => showMenu('#helpMenu'));
+
+            $(document).keydown(e => {
+                if (e.key === 'ArrowLeft') keys.left = true;
+                if (e.key === 'ArrowRight') keys.right = true;
+                if (e.key === 'Escape' && gameState === 'playing') {
+                    gameState = 'paused';
+                    showMenu('#pauseMenu');
+                }
+            });
+
+            $(document).keyup(e => {
+                if (e.key === 'ArrowLeft') keys.left = false;
+                if (e.key === 'ArrowRight') keys.right = false;
+            });
+
+            setInterval(update, 1000 / 60);
+        });
+    </script>
+</body>
+</html>
